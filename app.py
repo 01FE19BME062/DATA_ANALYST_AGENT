@@ -3771,6 +3771,13 @@ async def aianalyst(request: Request):
         media_type="application/json"
     )
 
+@app.get("/")
+async def read_root():
+    return {"message": "AI Data Analysis API", "status": "running"}
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
