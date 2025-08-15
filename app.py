@@ -2129,7 +2129,8 @@ async def process_excel_files(created_files: set = None) -> list:
                     try:
                         basic_df = pd.read_excel(excel_file, sheet_name=sheet_name, header=None)
                         if not basic_df.empty:
-                            basic_csv = f"basic_{safe_filename}_{re.sub(r'[^\w\-_\.]', '_', sheet_name)}.csv"
+                            safe_sheet_name = re.sub(r'[^\w\-_\.]', '_', sheet_name)
+                            basic_csv = f"basic_{safe_filename}_{safe_sheet_name}.csv"
                             basic_df.to_csv(basic_csv, index=False, encoding='utf-8')
                             track_created_file(basic_csv, created_files)
                             print(f"   🆘 Saved basic version as {basic_csv}")
