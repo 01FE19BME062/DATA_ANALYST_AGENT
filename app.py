@@ -28,6 +28,7 @@ import tempfile
 import shutil
 import asyncio
 import matplotlib.pyplot as plt
+
 import pdfplumber
 import openpyxl
 from openpyxl import load_workbook
@@ -540,46 +541,24 @@ def extract_content_from_response(response):
 
 def extract_json_from_output(output: str) -> str:
     """Extract JSON from output that might contain extra text"""
-# Split by lines and look for JSON on each line
-    lines = output.split('\n')
+    output = output.strip()
     
-    # Look for lines that start with [ or { (more precise than regex)
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-            
-        # Try to validate this line as JSON
-        if (line.startswith('{') and line.endswith('}')) or (line.startswith('[') and line.endswith(']')):
-            try:
-                # Test if it's valid JSON
-                json.loads(line)
-                return line
-            except json.JSONDecodeError:
-                continue
+    # First try to find complete JSON objects (prioritize these)
+    object_pattern = r'\{.*\}'
+    object_matches = re.findall(object_pattern, output, re.DOTALL)
     
-    # Fallback: try the original regex approach but with better matching
-    # Match balanced braces/brackets more carefully
-    for line in lines:
-        line = line.strip()
-        if line.startswith('[') or line.startswith('{'):
-            # Count opening and closing brackets/braces
-            if line.startswith('['):
-                if line.count('[') == line.count(']') and line.endswith(']'):
-                    try:
-                        json.loads(line)
-                        return line
-                    except json.JSONDecodeError:
-                        continue
-            elif line.startswith('{'):
-                if line.count('{') == line.count('}') and line.endswith('}'):
-                    try:
-                        json.loads(line)
-                        return line
-                    except json.JSONDecodeError:
-                        continue
+    # If we find JSON objects, return the longest one (most complete)
+    if object_matches:
+        longest_match = max(object_matches, key=len)
+        return longest_match
     
-    # Last resort: return the original output
+    # Only if no objects found, look for arrays
+    array_pattern = r'\[.*\]'
+    array_matches = re.findall(array_pattern, output, re.DOTALL)
+    
+    if array_matches:
+        longest_match = max(array_matches, key=len)
+        return longest_match
     
     return output
 
@@ -2150,9 +2129,10 @@ async def process_excel_files(created_files: set = None) -> list:
                     try:
                         basic_df = pd.read_excel(excel_file, sheet_name=sheet_name, header=None)
                         if not basic_df.empty:
-                            safe_sheet_name = re.sub(r'[^\w\-\.]', '', sheet_name)
+                            safe_sheet_name = re.sub(r'[^\w\-_\.]', '_', sheet_name)
                             basic_csv = f"basic_{safe_filename}_{safe_sheet_name}.csv"
                             basic_df.to_csv(basic_csv, index=False, encoding='utf-8')
+                            track_created_file(basic_csv, created_files)
                             print(f"   🆘 Saved basic version as {basic_csv}")
                     except Exception:
                         print(f"   ❌ Sheet recovery also failed")
@@ -3549,16 +3529,13 @@ async def aianalyst(request: Request):
         # print(raw_code)
         
         # Primary: Use Claude Sonnet 4 with 3-minute timeout
-        # response = await ping_claude(context, "You are a great Python code developer. JUST GIVE CODE NO EXPLANATIONS.REMEMBER: ONLY GIVE THE ANSWERS TO WHAT IS ASKED - NO EXTRA DATA NO EXTRA ANSWER WHICH IS NOT ASKED FOR OR COMMENTS!. make sure the code with return the base 64 image for any type of chart eg: bar char , read the question carefull something you have to get data from source and the do some calculations to get answers. Write final code for the answer and our workflow using all the detail provided to you. IMPORTANT SQL RULES: When using GROUP BY with CASE expressions, use ORDER BY 1, 2, 3 (positional numbers) instead of referencing column names. Include 'import matplotlib.pyplot as plt' in your imports.")
+        response = await ping_claude(context, "You are a great Python code developer. JUST GIVE CODE NO EXPLANATIONS.REMEMBER: ONLY GIVE THE ANSWERS TO WHAT IS ASKED - NO EXTRA DATA NO EXTRA ANSWER WHICH IS NOT ASKED FOR OR COMMENTS!. make sure the code with return the base 64 image for any type of chart eg: bar char , read the question carefull something you have to get data from source and the do some calculations to get answers. Write final code for the answer and our workflow using all the detail provided to you. IMPORTANT SQL RULES: When using GROUP BY with CASE expressions, use ORDER BY 1, 2, 3 (positional numbers) instead of referencing column names. Include 'import matplotlib.pyplot as plt' in your imports.")
         
         # Fallback: OpenAI GPT-5 (commented out but kept for potential use)
         # response = await ping_open_ai_5(context, "You are a great Python code developer. JUST GIVE CODE NO EXPLANATIONS.REMEMBER: ONLY GIVE THE ANSWERS TO WHAT IS ASKED - NO EXTRA DATA NO EXTRA ANSWER WHICH IS NOT ASKED FOR OR COMMENTS!. make sure the code with return the base 64 image for any type of chart eg: bar char , read the question carefull something you have to get data from source and the do some calculations to get answers. Write final code for the answer and our workflow using all the detail provided to you. IMPORTANT SQL RULES: When using GROUP BY with CASE expressions, use ORDER BY 1, 2, 3 (positional numbers) instead of referencing column names. Include 'import matplotlib.pyplot as plt' in your imports.")
         
-        # # Safely extract content from response (handles both Claude and OpenAI formats)
-        # raw_code = extract_content_from_response(response)
-        response = await ping_open_ai_5(context, "You are a great Python code developer. JUST GIVE CODE NO EXPLANATIONS.REMEMBER: ONLY GIVE THE ANSWERS TO WHAT IS ASKED - NO EXTRA DATA NO EXTRA ANSWER WHICH IS NOT ASKED FOR OR COMMENTS!. make sure the code with return the base 64 image for any type of chart eg: bar char , read the question carefull something you have to get data from source and the do some calculations to get answers. Write final code for the answer and our workflow using all the detail provided to you")
-        raw_code = response["choices"][0]["message"]["content"]
-        print(raw_code)
+        # Safely extract content from response (handles both Claude and OpenAI formats)
+        raw_code = extract_content_from_response(response)
         if not raw_code:
             raise Exception("Failed to extract content from AI response")
         print(raw_code)
@@ -3701,17 +3678,13 @@ async def aianalyst(request: Request):
             safe_write("fix.txt", fix_prompt)
 
             # Primary: Use Claude for code fixing with timeout
-            # horizon_fix = await ping_claude(fix_prompt, "You are a helpful Python code fixer. dont try to code from scratch. just fix the error. SEND FULL CODE WITH CORRECTION APPLIED")
+            horizon_fix = await ping_claude(fix_prompt, "You are a helpful Python code fixer. dont try to code from scratch. just fix the error. SEND FULL CODE WITH CORRECTION APPLIED")
             
-            gemini_fix = await ping_chatgpt(fix_prompt, "You are a helpful Python code fixer. Don't try to code from scratch. Just fix the error. SEND FULL CODE WITH CORRECTION APPLIED")
-            fixed_code = gemini_fix["choices"][0]["message"]["content"]
-
             # Fallback: OpenAI GPT-5 for code fixing (commented out but kept for potential use)
             # horizon_fix = await ping_open_ai_5(fix_prompt, "You are a helpful Python code fixer. dont try to code from scratch. just fix the error. SEND FULL CODE WITH CORRECTION APPLIED")
             
             # Safely extract content from response (handles both Claude and OpenAI formats)
-            # fixed_code = extract_content_from_response(horizon_fix)
-
+            fixed_code = extract_content_from_response(horizon_fix)
             if not fixed_code:
                 raise Exception("Failed to extract fixed code from AI response")
 
@@ -3798,6 +3771,13 @@ async def aianalyst(request: Request):
         media_type="application/json"
     )
 
+@app.get("/")
+async def read_root():
+    return {"message": "AI Data Analysis API", "status": "running"}
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
