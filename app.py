@@ -28,7 +28,6 @@ import tempfile
 import shutil
 import asyncio
 import matplotlib.pyplot as plt
-
 import pdfplumber
 import openpyxl
 from openpyxl import load_workbook
@@ -2151,10 +2150,9 @@ async def process_excel_files(created_files: set = None) -> list:
                     try:
                         basic_df = pd.read_excel(excel_file, sheet_name=sheet_name, header=None)
                         if not basic_df.empty:
-                            safe_sheet_name = re.sub(r'[^\w\-_\.]', '_', sheet_name)
+                            safe_sheet_name = re.sub(r'[^\w\-\.]', '', sheet_name)
                             basic_csv = f"basic_{safe_filename}_{safe_sheet_name}.csv"
                             basic_df.to_csv(basic_csv, index=False, encoding='utf-8')
-                            track_created_file(basic_csv, created_files)
                             print(f"   🆘 Saved basic version as {basic_csv}")
                     except Exception:
                         print(f"   ❌ Sheet recovery also failed")
@@ -3556,8 +3554,11 @@ async def aianalyst(request: Request):
         # Fallback: OpenAI GPT-5 (commented out but kept for potential use)
         # response = await ping_open_ai_5(context, "You are a great Python code developer. JUST GIVE CODE NO EXPLANATIONS.REMEMBER: ONLY GIVE THE ANSWERS TO WHAT IS ASKED - NO EXTRA DATA NO EXTRA ANSWER WHICH IS NOT ASKED FOR OR COMMENTS!. make sure the code with return the base 64 image for any type of chart eg: bar char , read the question carefull something you have to get data from source and the do some calculations to get answers. Write final code for the answer and our workflow using all the detail provided to you. IMPORTANT SQL RULES: When using GROUP BY with CASE expressions, use ORDER BY 1, 2, 3 (positional numbers) instead of referencing column names. Include 'import matplotlib.pyplot as plt' in your imports.")
         
-        # Safely extract content from response (handles both Claude and OpenAI formats)
+        # # Safely extract content from response (handles both Claude and OpenAI formats)
         raw_code = extract_content_from_response(response)
+        # response = await ping_open_ai_5(context, "You are a great Python code developer. JUST GIVE CODE NO EXPLANATIONS.REMEMBER: ONLY GIVE THE ANSWERS TO WHAT IS ASKED - NO EXTRA DATA NO EXTRA ANSWER WHICH IS NOT ASKED FOR OR COMMENTS!. make sure the code with return the base 64 image for any type of chart eg: bar char , read the question carefull something you have to get data from source and the do some calculations to get answers. Write final code for the answer and our workflow using all the detail provided to you")
+        # raw_code = response["choices"][0]["message"]["content"]
+        print(raw_code)
         if not raw_code:
             raise Exception("Failed to extract content from AI response")
         print(raw_code)
@@ -3702,11 +3703,15 @@ async def aianalyst(request: Request):
             # Primary: Use Claude for code fixing with timeout
             horizon_fix = await ping_claude(fix_prompt, "You are a helpful Python code fixer. dont try to code from scratch. just fix the error. SEND FULL CODE WITH CORRECTION APPLIED")
             
+            # gemini_fix = await ping_chatgpt(fix_prompt, "You are a helpful Python code fixer. Don't try to code from scratch. Just fix the error. SEND FULL CODE WITH CORRECTION APPLIED")
+            # fixed_code = gemini_fix["choices"][0]["message"]["content"]
+
             # Fallback: OpenAI GPT-5 for code fixing (commented out but kept for potential use)
             # horizon_fix = await ping_open_ai_5(fix_prompt, "You are a helpful Python code fixer. dont try to code from scratch. just fix the error. SEND FULL CODE WITH CORRECTION APPLIED")
             
             # Safely extract content from response (handles both Claude and OpenAI formats)
             fixed_code = extract_content_from_response(horizon_fix)
+
             if not fixed_code:
                 raise Exception("Failed to extract fixed code from AI response")
 
